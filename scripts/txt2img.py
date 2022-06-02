@@ -26,7 +26,7 @@ def preprocess_mask(mask_path, h, w):
 
 def load_model_from_config(config, ckpt, verbose=False):
     print(f"Loading model from {ckpt}")
-    pl_sd = torch.load(ckpt, map_location="cpu")
+    pl_sd = torch.load(ckpt, map_location="cuda")
     sd = pl_sd["state_dict"]
     model = instantiate_from_config(config.model)
     m, u = model.load_state_dict(sd, strict=False)
@@ -37,7 +37,8 @@ def load_model_from_config(config, ckpt, verbose=False):
         print("unexpected keys:")
         print(u)
 
-    model.cuda()
+    #model.cuda()
+    model.half()
     model.eval()
     return model
 
@@ -177,14 +178,15 @@ if __name__ == "__main__":
 
     all_samples=list()
     with torch.no_grad():
-        with model.ema_scope():
-            uc = None
-            if opt.scale != 1.0:
-                uc = model.get_learned_conditioning(opt.n_samples * [""])
-            for n in trange(opt.n_iter, desc="Sampling"):
-                c = model.get_learned_conditioning(opt.n_samples * [prompt])
-                shape = [4, opt.H//8, opt.W//8]
-                samples_ddim, _ = sampler.sample(S=opt.ddim_steps,
+        with torch.cuda.amp.autocast():
+            with model.ema_scope():
+                uc = None
+                if opt.scale != 1.0:
+                    uc = model.get_learned_conditioning(opt.n_samples * [""])
+                for n in trange(opt.n_iter, desc="Sampling"):
+                    c = model.get_learned_conditioning(opt.n_samples * [prompt])
+                    shape = [4, opt.H//8, opt.W//8]
+                    samples_ddim, _ = sampler.sample(S=opt.ddim_steps,
                                                  conditioning=c,
                                                  batch_size=opt.n_samples,
                                                  shape=shape,
@@ -195,14 +197,14 @@ if __name__ == "__main__":
                                                  mask=mask,
                                                  eta=opt.ddim_eta)
 
-                x_samples_ddim = model.decode_first_stage(samples_ddim)
-                x_samples_ddim = torch.clamp((x_samples_ddim+1.0)/2.0, min=0.0, max=1.0)
+                   x_samples_ddim = model.decode_first_stage(samples_ddim)
+                   x_samples_ddim = torch.clamp((x_samples_ddim+1.0)/2.0, min=0.0, max=1.0)
 
-                for x_sample in x_samples_ddim:
-                    x_sample = 255. * rearrange(x_sample.cpu().numpy(), 'c h w -> h w c')
-                    Image.fromarray(x_sample.astype(np.uint8)).save(os.path.join(sample_path, f"{base_count:04}.png"))
-                    base_count += 1
-                all_samples.append(x_samples_ddim)
+                    for x_sample in x_samples_ddim:
+                        x_sample = 255. * rearrange(x_sample.cpu().numpy(), 'c h w -> h w c')
+                     Image.fromarray(x_sample.astype(np.uint8)).save(os.path.join(sample_path, f"{base_count:04}.png"))
+                     base_count += 1
+                  all_samples.append(x_samples_ddim)
 
 
     # additionally, save as grid
